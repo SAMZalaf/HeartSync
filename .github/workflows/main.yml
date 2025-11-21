@@ -16,8 +16,8 @@ jobs:
       - name: Unzip project files
         run: unzip fkDGTlmlf.zip -d project
 
-      - name: Change directory
-        run: cd project && ls -al
+      - name: List project files
+        run: ls -al project
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -25,10 +25,12 @@ jobs:
           flutter-version: 'stable'
 
       - name: Install dependencies
-        run: cd project && flutter pub get
+        run: flutter pub get
+        working-directory: project
 
       - name: Build APK (debug)
-        run: cd project && flutter build apk --debug
+        run: flutter build apk --debug
+        working-directory: project
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
