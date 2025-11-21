@@ -1,0 +1,37 @@
+name: CI Flutter Build
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Unzip project files
+        run: unzip fkDGTlmlf.zip -d project
+
+      - name: Change directory
+        run: cd project && ls -al
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 'stable'
+
+      - name: Install dependencies
+        run: cd project && flutter pub get
+
+      - name: Build APK (debug)
+        run: cd project && flutter build apk --debug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug.apk
+          path: project/build/app/outputs/flutter-apk/app-debug.apk
