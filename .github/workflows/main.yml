@@ -1,4 +1,4 @@
-name: Flutter CI - auto-detect zip & build
+name: Flutter CI - auto unzip & build
 
 on:
   push:
@@ -17,13 +17,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Ensure unzip is available
+      - name: Install unzip
         run: sudo apt-get update && sudo apt-get install -y unzip
 
-      - name: Find zip file in repository
+      - name: Find latest zip file
         id: findzip
         run: |
-          # Find zip files tracked by git; prefer newest by mtime
           ZIP=$(git ls-files '*.zip' | xargs -I{} stat -c "%Y %n" {} 2>/dev/null | sort -nr | head -n1 | awk '{print $2}')
           if [ -z "$ZIP" ]; then
             echo "no_zip=true" >> $GITHUB_OUTPUT
@@ -32,7 +31,7 @@ jobs:
             echo "no_zip=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Unzip artifact if found
+      - name: Unzip if found
         if: steps.findzip.outputs.no_zip == 'false'
         run: |
           echo "Unzipping ${{ steps.findzip.outputs.zip_path }}"
@@ -40,36 +39,50 @@ jobs:
           unzip -o "${{ steps.findzip.outputs.zip_path }}" -d extracted
           ls -la extracted
 
-      - name: Set working directory
-        run: |
-          if [ -d extracted ] && [ "$(ls -A extracted)" ]; then
-            echo "WORKDIR=extracted" >> $GITHUB_ENV
-          else
-            echo "WORKDIR=." >> $GITHUB_ENV
-          fi
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
 
-      - name: Install dependencies if pubspec exists
+      - name: Confirm Flutter version
+        run: flutter --version
+
+      - name: Set working directory (auto-detect pubspec)
+        run: |
+          ROOT="."
+          if [ -d extracted ] && [ "$(ls -A extracted)" ]; then
+            ROOT="extracted"
+          fi
+          PUBSPEC_DIR=$(find "$ROOT" -maxdepth 2 -type f -name pubspec.yaml -printf '%h\n' | head -n1)
+          if [ -n "$PUBSPEC_DIR" ]; then
+            echo "WORKDIR=$PUBSPEC_DIR" >> $GITHUB_ENV
+            echo "Found pubspec at: $PUBSPEC_DIR"
+          else
+            echo "WORKDIR=$ROOT" >> $GITHUB_ENV
+            echo "No pubspec.yaml found; using $ROOT"
+          fi
+
+      - name: Install dependencies
         working-directory: ${{ env.WORKDIR }}
         run: |
           if [ -f pubspec.yaml ]; then
-            echo "Found pubspec.yaml, running flutter pub get"
             flutter pub get
           else
-            echo "No pubspec.yaml in ${{ env.WORKDIR }}, skipping pub get"
+            echo "No pubspec.yaml found in ${{ env.WORKDIR }}"
           fi
 
       - name: Build APK
         working-directory: ${{ env.WORKDIR }}
-        run: |
-          flutter build apk --release
+        run: flutter build apk --release
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-release-apk
-          path: ${{ env.WORKDIR }}/build/app/outputs/flutter-apk/*.apkط
+          path: ${{ env.WORKDIR }}/build/app/outputs/flutter-apk/*.apk
