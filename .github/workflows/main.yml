@@ -1,4 +1,4 @@
-name: Flutter CI - robust install & build
+name: Flutter CI - auto-fix unsupported Gradle & build
 
 on:
   push:
@@ -8,7 +8,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     env:
       FLUTTER_CHANNEL: "stable"
       FLUTTER_GIT_URL: "https://github.com/flutter/flutter.git"
@@ -19,7 +18,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install unzip and git
+      - name: Install prerequisites
         run: sudo apt-get update && sudo apt-get install -y unzip git
 
       - name: Setup Java 17
@@ -28,13 +27,102 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Diagnostic - show runner info
-        run: |
-          echo "Runner: $RUNNER_OS"
-          uname -a
-          java -version
-          env | sort
+      - name: Setup Flutter (subosito) - allow failure
+        id: flutter_action
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_CHANNEL }}
+        continue-on-error: true
 
+      - name: Ensure flutter available (fallback to git clone)
+        if: ${{ failure() }}
+        run: |
+          if ! command -v flutter >/dev/null 2>&1; then
+            echo "Installing Flutter from git (stable) as fallback..."
+            FLUTTER_DIR="${RUNNER_TEMP}/flutter"
+            rm -rf "$FLUTTER_DIR"
+            git clone --depth 1 --branch ${{ env.FLUTTER_CHANNEL }} ${{ env.FLUTTER_GIT_URL }} "$FLUTTER_DIR"
+            echo "$FLUTTER_DIR/bin" >> $GITHUB_PATH
+          fi
+
+      - name: Confirm Flutter & Java
+        run: |
+          java -version || true
+          flutter --version || true
+
+      - name: Find project root (pubspec) and set WORKDIR
+        id: find_root
+        run: |
+          # Prefer extracted if exists, else repo root
+          ROOT="."
+          if [ -d extracted ] && [ "$(ls -A extracted)" ]; then
+            ROOT="extracted"
+          fi
+          # Find directory that contains pubspec.yaml (search depth 4)
+          PUBSPEC_DIR=$(find "$ROOT" -maxdepth 4 -type f -name pubspec.yaml -printf '%h\n' | head -n1 || true)
+          if [ -n "$PUBSPEC_DIR" ]; then
+            echo "WORKDIR=$PUBSPEC_DIR" >> $GITHUB_ENV
+            echo "Found pubspec at: $PUBSPEC_DIR"
+          else
+            echo "WORKDIR=$ROOT" >> $GITHUB_ENV
+            echo "No pubspec.yaml found; using $ROOT"
+          fi
+          echo "WORKDIR set to $WORKDIR"
+
+      - name: Diagnostic - list WORKDIR contents
+        run: |
+          echo "=== WORKDIR = ${{ env.WORKDIR }} ==="
+          ls -la "${{ env.WORKDIR }}" || true
+          echo "=== Searching for android/ and gradle files ==="
+          ls -la "${{ env.WORKDIR }}/android" || true
+          ls -la "${{ env.WORKDIR }}/android/gradle" || true
+          if [ -f "${{ env.WORKDIR }}/android/gradle.properties" ]; then
+            echo "Found android/gradle.properties"
+          fi
+          if [ -f "${{ env.WORKDIR }}/pubspec.yaml" ]; then
+            echo "pubspec.yaml exists"
+          fi
+
+      - name: Fix missing Android project (flutter create) if needed
+        run: |
+          set -e
+          # If android folder missing or missing key gradle files, recreate android via flutter create
+          if [ ! -d "${{ env.WORKDIR }}/android" ] || [ ! -f "${{ env.WORKDIR }}/android/app/build.gradle" ]; then
+            echo "Android folder or build.gradle missing. Running 'flutter create --platforms=android .' in ${{ env.WORKDIR }}"
+            pushd "${{ env.WORKDIR }}"
+            # flutter create will not overwrite lib/ and pubspec.yaml; safe to run in many cases
+            flutter create --platforms=android .
+            popd
+          else
+            echo "Android folder looks present."
+          fi
+
+      - name: Install dependencies
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          if [ -f pubspec.yaml ]; then
+            flutter pub get --verbose
+          else
+            echo "No pubspec.yaml found in ${{ env.WORKDIR }}; aborting"
+            exit 1
+          fi
+
+      - name: Accept Android licenses (best-effort)
+        run: |
+          yes | sdkmanager --licenses || true
+        continue-on-error: true
+
+      - name: Build APK (verbose)
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          set -o pipefail
+          flutter build apk --release -v
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-apk
+          path: ${{ env.WORKDIR }}/build/app/outputs/flutter-apk/*.apk
       - name: Try setup Flutter via subosito action
         id: flutter_action
         uses: subosito/flutter-action@v2
