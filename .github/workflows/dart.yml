@@ -68,14 +68,12 @@ jobs:
           ls -la android || true
           echo "android/app listing (if exists):"
           ls -la android/app || true
-          # If android/app missing or build.gradle missing, generate scaffolding
           if [ ! -d "android/app" ] || [ ! -f "android/app/build.gradle" ]; then
             echo "Android app module missing or invalid — running flutter create to generate scaffolding"
             flutter create -t app .
           else
             echo "Android app module present"
           fi
-          # Ensure gradlew executable if present
           if [ -f "android/gradlew" ]; then
             chmod +x android/gradlew || true
           fi
@@ -85,7 +83,6 @@ jobs:
       - name: Ensure google-services.json if template exists
         working-directory: ${{ env.WORKDIR }}
         run: |
-          # If you keep a template, optionally copy it to google-services.json here.
           if [ -f "android/app/google-services.json.template" ] && [ ! -f "android/app/google-services.json" ]; then
             cp android/app/google-services.json.template android/app/google-services.json || true
             echo "Copied google-services.json.template to android/app/google-services.json"
@@ -129,13 +126,19 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "${{ env.OUT_NAME }}"
           git commit -m "Add HeartSync release APK [skip ci]" || echo "No changes to commit"
-          git push origin main || echo "Push with GITHUB_TOKEN failed; will try PAT if provided"
+          git push origin main || echo "Push with GITHUB_TOKEN failed; PAT step will attempt if provided"
 
-      - name: Commit and push using Personal Access Token if provided
-        if: steps.find_apk.outputs.apk_found == 'true' && secrets.PERSONAL_TOKEN != ''
+      - name: Commit and push using Personal Access Token (PAT) if provided
+        if: steps.find_apk.outputs.apk_found == 'true'
+        env:
+          PERSONAL_TOKEN: ${{ secrets.PERSONAL_TOKEN }}
         run: |
-          # Use PAT stored in secrets.PERSONAL_TOKEN to push when branch protection blocks GITHUB_TOKEN
-          git remote set-url origin https://x-access-token:${{ secrets.PERSONAL_TOKEN }}@github.com/${{ github.repository }}
+          if [ -z "${PERSONAL_TOKEN}" ]; then
+            echo "No PERSONAL_TOKEN provided; skipping PAT push."
+            exit 0
+          fi
+          echo "Using PERSONAL_TOKEN to push APK to main"
+          git remote set-url origin https://x-access-token:${PERSONAL_TOKEN}@github.com/${{ github.repository }}
           git push origin main
 
       - name: Final listing of repo root
