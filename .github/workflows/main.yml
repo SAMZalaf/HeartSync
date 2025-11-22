@@ -5,10 +5,17 @@ on:
     branches: [ main ]
     paths:
       - 'extracted/fkDGTlmlf/**'
+      - 'pubspec.yaml'
+      - 'puscec.yaml'
+      - 'fkDGTlmlf.zip'
   workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: build-and-commit-apk
+  cancel-in-progress: true
 
 jobs:
   build_and_commit_apk:
@@ -103,4 +110,4 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "${{ env.OUT_NAME }}"
           git commit -m "Add HeartSync release APK [skip ci]" || echo "No changes to commit"
-          git push origin main
+          git push origin main 
