@@ -13,6 +13,9 @@ permissions:
 jobs:
   build_and_commit_apk:
     runs-on: ubuntu-latest
+    env:
+      WORKDIR: extracted/fkDGTlmlf
+      OUT_NAME: heartsync-release.apk
 
     steps:
       - name: Checkout repository
@@ -21,7 +24,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
-      - name: Setup Java & unzip
+      - name: Install prerequisites
         run: |
           sudo apt-get update
           sudo apt-get install -y unzip wget zip libglu1-mesa openjdk-17-jdk
@@ -31,10 +34,53 @@ jobs:
         with:
           flutter-version: 'stable'
 
-      - name: Build APK
-        working-directory: extracted/fkDGTlmlf
+      - name: Verify project exists
         run: |
-          flutter pub get
+          if [ ! -d "${{ env.WORKDIR }}" ]; then
+            echo "ERROR: Project folder ${{ env.WORKDIR }} not found"
+            ls -la
+            exit 1
+          fi
+          echo "Using project folder: ${{ env.WORKDIR }}"
+
+      - name: Flutter pub get
+        working-directory: ${{ env.WORKDIR }}
+        run: flutter pub get --verbose
+
+      - name: Build APK release
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          set -o pipefail
+          flutter build apk --release -v
+
+      - name: Locate built APK
+        id: find_apk
+        run: |
+          APK_PATH=$(find build/app/outputs -type f -name "*.apk" -print -quit || true)
+          if [ -z "$APK_PATH" ]; then
+            echo "apk_found=false" >> $GITHUB_OUTPUT
+            echo "No APK found under build/app/outputs" 
+            exit 1
+          else
+            echo "apk_found=true" >> $GITHUB_OUTPUT
+            echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
+            echo "Found APK: $APK_PATH"
+          fi
+
+      - name: Copy APK to repo root
+        if: steps.find_apk.outputs.apk_found == 'true'
+        run: |
+          cp "${{ steps.find_apk.outputs.apk_path }}" "./${{ env.OUT_NAME }}"
+          ls -lh "./${{ env.OUT_NAME }}"
+
+      - name: Commit and push APK to main
+        if: steps.find_apk.outputs.apk_found == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "${{ env.OUT_NAME }}"
+          git commit -m "Add HeartSync release APK [skip ci]" || echo "No changes to commit"
+          git push origin main          flutter pub get
           flutter build apk --release
 
       - name: Copy APK to repo root
