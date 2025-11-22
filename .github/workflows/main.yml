@@ -6,6 +6,9 @@ on:
       - main
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   unzip-to-main:
     runs-on: ubuntu-latest
@@ -16,6 +19,7 @@ jobs:
           ref: main
           fetch-depth: 0
           persist-credentials: true
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Ensure unzip is installed
         run: sudo apt-get update && sudo apt-get install -y unzip
@@ -36,17 +40,27 @@ jobs:
       - name: Show extracted files
         run: ls -la extracted
 
-      - name: Commit and push extracted files to main
+      - name: Commit extracted files
         run: |
           git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git.config user.email "github-actions[bot]@users.noreply.github.com"
           git add extracted || true
-          # only commit if there are changes
           if git diff --cached --quiet; then
             echo "No changes to commit"
           else
             git commit -m "Add extracted content from fkDGTlmlf.zip"
-            git push origin HEAD:main
           fi
+
+      - name: Debug git info before push
+        run: |
+          git remote -v
+          git branch --show-current
+          git status --porcelain
+          git log -1 --pretty=fuller
+
+      - name: Push to main (verbose)
+        run: |
+          set -x
+          git push origin HEAD:main
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
