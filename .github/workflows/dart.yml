@@ -23,8 +23,8 @@ jobs:
     env:
       WORKDIR: extracted/fkDGTlmlf
       OUT_NAME: heartsync-release.apk
-      FLUTTER_CHANNEL: stable
       FLUTTER_GIT_URL: https://github.com/flutter/flutter.git
+      FLUTTER_BRANCH: stable
 
     steps:
       - name: Checkout repository
@@ -38,31 +38,29 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y unzip wget zip libglu1-mesa openjdk-17-jdk git
 
-      - name: Try setup Flutter action
-        id: flutter_action
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_CHANNEL }}
-        continue-on-error: true
+      - name: Install Flutter SDK from git (stable)
+        id: install_flutter
+        run: |
+          # Install Flutter by cloning stable branch (robust fallback instead of third-party action)
+          FLUTTER_DIR="${RUNNER_TEMP}/flutter"
+          echo "Installing Flutter into $FLUTTER_DIR"
+          rm -rf "$FLUTTER_DIR"
+          git clone --depth 1 --branch "$FLUTTER_BRANCH" "$FLUTTER_GIT_URL" "$FLUTTER_DIR"
+          echo "$FLUTTER_DIR/bin" >> $GITHUB_PATH
+          echo "$FLUTTER_DIR/bin/cache/dart-sdk/bin" >> $GITHUB_PATH
+          # Ensure flutter is available
+          flutter --version || true
+          # Precache required artifacts (Android)
+          flutter precache --android || true
+          flutter doctor -v || true
 
-      - name: Fallback install Flutter from git if needed
-        if: ${{ steps.flutter_action.outcome == 'failure' }}
+      - name: Verify flutter installed
         run: |
           if ! command -v flutter >/dev/null 2>&1; then
-            echo "Installing Flutter from git (stable) as fallback..."
-            FLUTTER_DIR="${RUNNER_TEMP}/flutter"
-            rm -rf "$FLUTTER_DIR"
-            git clone --depth 1 --branch "$FLUTTER_CHANNEL" "$FLUTTER_GIT_URL" "$FLUTTER_DIR"
-            echo "$FLUTTER_DIR/bin" >> $GITHUB_PATH
-            echo "$FLUTTER_DIR/bin/cache/dart-sdk/bin" >> $GITHUB_PATH || true
-          else
-            echo "flutter already installed, skipping fallback"
+            echo "ERROR: flutter not found after install"
+            exit 1
           fi
-
-      - name: Confirm Flutter and Java
-        run: |
-          java -version || true
-          flutter --version || true
+          flutter --version
 
       - name: Verify project exists
         run: |
@@ -90,6 +88,7 @@ jobs:
           if [ -z "$APK_PATH" ]; then
             echo "apk_found=false" >> $GITHUB_OUTPUT
             echo "No APK found under build/app/outputs"
+            exit 0
           else
             echo "apk_found=true" >> $GITHUB_OUTPUT
             echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
