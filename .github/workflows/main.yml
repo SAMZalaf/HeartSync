@@ -1,44 +1,52 @@
-name: Unzip and commit to main
+name: Unzip fkDGTlmlf.zip to main
 
 on:
   push:
-    branches: [ main ]
-    paths:
-      - fkDGTlmlf.zip
+    branches:
+      - main
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
-  unzip_and_commit:
+  unzip-to-main:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Checkout main branch
+        uses: actions/checkout@v3
         with:
+          ref: main
           fetch-depth: 0
           persist-credentials: true
 
-      - name: Install unzip
+      - name: Ensure unzip is installed
         run: sudo apt-get update && sudo apt-get install -y unzip
 
-      - name: Unzip fkDGTlmlf.zip
+      - name: Confirm zip exists
         run: |
-          if [ -f fkDGTlmlf.zip ]; then
-            mkdir -p extracted/fkDGTlmlf
-            unzip -o fkDGTlmlf.zip -d extracted/fkDGTlmlf
-            ls -la extracted/fkDGTlmlf
-          else
-            echo "fkDGTlmlf.zip not found"
+          if [ ! -f fkDGTlmlf.zip ]; then
+            echo "ERROR: fkDGTlmlf.zip not found in repo root"
             exit 1
           fi
+          echo "Found fkDGTlmlf.zip"
 
-      - name: Commit and push extracted files
+      - name: Unzip fkDGTlmlf.zip into extracted/
+        run: |
+          mkdir -p extracted
+          unzip -o fkDGTlmlf.zip -d extracted
+
+      - name: Show extracted files
+        run: ls -la extracted
+
+      - name: Commit and push extracted files to main
         run: |
           git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add extracted/fkDGTlmlf
-          git commit -m "Add extracted files from fkDGTlmlf.zip [skip ci]" || echo "No changes to commit"
-          git push origin main
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add extracted || true
+          # only commit if there are changes
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Add extracted content from fkDGTlmlf.zip"
+            git push origin HEAD:main
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
