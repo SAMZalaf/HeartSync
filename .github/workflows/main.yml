@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write  # للسماح بالـ push
+  contents: write
 
 jobs:
   unzip_and_commit:
@@ -21,7 +21,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
-      - name: Ensure unzip is available
+      - name: Install unzip
         run: sudo apt-get update && sudo apt-get install -y unzip
 
       - name: Unzip fkDGTlmlf.zip
@@ -31,7 +31,7 @@ jobs:
             unzip -o fkDGTlmlf.zip -d extracted/fkDGTlmlf
             ls -la extracted/fkDGTlmlf
           else
-            echo "fkDGTlmlf.zip not found in repo root"
+            echo "fkDGTlmlf.zip not found"
             exit 1
           fi
 
@@ -40,6 +40,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add extracted/fkDGTlmlf
-          # ضع [skip ci] لتجنّب إعادة تشغيل الـ workflow بسبب هذا الـ push
           git commit -m "Add extracted files from fkDGTlmlf.zip [skip ci]" || echo "No changes to commit"
-          git push origin main          git push origin main
+          git push origin main
