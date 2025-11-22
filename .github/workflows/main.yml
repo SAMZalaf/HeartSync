@@ -8,10 +8,10 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     env:
       FLUTTER_CHANNEL: "stable"
       FLUTTER_GIT_URL: "https://github.com/flutter/flutter.git"
-      FLUTTER_DIR: "${{ runner.temp }}/flutter"
 
     steps:
       - name: Checkout repository
@@ -42,30 +42,35 @@ jobs:
           flutter-version: ${{ env.FLUTTER_CHANNEL }}
         continue-on-error: true
 
-      - name: Check if subosito succeeded
+      - name: Check if flutter is available
         id: check_subosito
         run: |
-          if flutter --version >/dev/null 2>&1; then
+          if command -v flutter >/dev/null 2>&1; then
             echo "subosito_ok=true" >> $GITHUB_OUTPUT
           else
             echo "subosito_ok=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Diagnostic - test network to Flutter storage
-        if: steps.check_subosito.outputs.subosito_ok == 'false'
-        run: |
-          echo "Testing connectivity to storage.googleapis.com..."
-          curl -I -s https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.10.6-stable.tar.xz || true
-
       - name: Fallback - install Flutter from Git if action failed
         if: steps.check_subosito.outputs.subosito_ok == 'false'
         run: |
           echo "subosito action failed; installing Flutter from Git (stable)..."
-          rm -rf "${{ env.FLUTTER_DIR }}"
-          git clone --depth 1 --branch ${{ env.FLUTTER_CHANNEL }} ${{ env.FLUTTER_GIT_URL }} "${{ env.FLUTTER_DIR }}"
-          echo "Adding flutter to PATH"
-          echo "${{ env.FLUTTER_DIR }}/bin" >> $GITHUB_PATH
+          FLUTTER_DIR="${RUNNER_TEMP}/flutter"
+          rm -rf "$FLUTTER_DIR"
+          git clone --depth 1 --branch ${{ env.FLUTTER_CHANNEL }} ${{ env.FLUTTER_GIT_URL }} "$FLUTTER_DIR"
+          echo "$FLUTTER_DIR/bin" >> $GITHUB_PATH
+          echo "FLUTTER_DIR=$FLUTTER_DIR" >> $GITHUB_ENV
           flutter --version || true
+
+      - name: Ensure FLUTTER_DIR env if subosito succeeded
+        if: steps.check_subosito.outputs.subosito_ok == 'true'
+        run: |
+          # If subosito installed flutter, ensure FLUTTER_DIR points to its bin parent (best-effort)
+          FLUTTER_BIN=$(command -v flutter || true)
+          if [ -n "$FLUTTER_BIN" ]; then
+            FLUTTER_DIR=$(dirname "$(dirname "$FLUTTER_BIN")")
+            echo "FLUTTER_DIR=$FLUTTER_DIR" >> $GITHUB_ENV
+          fi
 
       - name: Final check - flutter version
         run: |
@@ -77,13 +82,10 @@ jobs:
             exit 1
           fi
 
-      - name: Install unzip (again ensure)
-        run: sudo apt-get install -y unzip || true
-
       - name: Find latest zip file
         id: findzip
         run: |
-          ZIP=$(git ls-files '*.zip' | xargs -I{} stat -c "%Y %n" {} 2>/dev/null | sort -nr | head -n1 | awk '{print $2}')
+          ZIP=$(git ls-files '*.zip' 2>/dev/null | xargs -I{} stat -c "%Y %n" {} 2>/dev/null | sort -nr | head -n1 | awk '{print $2}' || true)
           if [ -z "$ZIP" ]; then
             echo "no_zip=true" >> $GITHUB_OUTPUT
           else
@@ -106,7 +108,6 @@ jobs:
           if [ -d extracted ] && [ "$(ls -A extracted)" ]; then
             ROOT="extracted"
           fi
-          # search up to depth 3 for pubspec.yaml
           PUBSPEC_DIR=$(find "$ROOT" -maxdepth 3 -type f -name pubspec.yaml -printf '%h\n' | head -n1 || true)
           if [ -n "$PUBSPEC_DIR" ]; then
             echo "WORKDIR=$PUBSPEC_DIR" >> $GITHUB_ENV
@@ -121,7 +122,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.pub-cache
-          key: pub-${{ runner.os }}-${{ hashFiles(format('{0}/pubspec.lock', env.WORKDIR)) }}
+          key: pub-${{ runner.os }}-${{ hashFiles('**/pubspec.lock') }}
           restore-keys: |
             pub-${{ runner.os }}-
 
