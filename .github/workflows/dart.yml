@@ -73,16 +73,26 @@ jobs:
         working-directory: ${{ env.WORKDIR }}
         run: flutter pub get --verbose
 
-      - name: Build APK release
+      - name: Build APK release (increase Gradle heap, split per ABI)
         working-directory: ${{ env.WORKDIR }}
+        env:
+          GRADLE_OPTS: "-Xmx3g -Dorg.gradle.jvmargs=-Xmx3g -Dkotlin.daemon.jvm.options=-Xmx1g"
+          JAVA_TOOL_OPTIONS: "-Xmx3g"
         run: |
           set -o pipefail
-          flutter build apk --release -v
+          export GRADLE_OPTS="${GRADLE_OPTS} --max-workers=2"
+          echo "Using GRADLE_OPTS=$GRADLE_OPTS"
+          # Try split-per-abi first to reduce peak memory usage
+          flutter build apk --release --split-per-abi -v || {
+            echo "Split-per-ABI build failed; trying single APK with reduced workers and no shrink"
+            flutter build apk --release -v --no-shrink || exit 1
+          }
 
       - name: Locate built APK
         id: find_apk
         working-directory: ${{ env.WORKDIR }}
         run: |
+          # Find any apk under outputs (handles split-per-abi or single APK)
           APK_PATH=$(find build/app/outputs -type f -name "*.apk" -print -quit || true)
           if [ -z "$APK_PATH" ]; then
             echo "apk_found=false" >> $GITHUB_OUTPUT
@@ -114,21 +124,16 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # create branch from current HEAD
           git checkout -b "$BRANCH"
-
-          # add apk and commit
           git add "${{ env.OUT_NAME }}"
           git commit -m "Add HeartSync APK ${SHORT} (${TS}) [skip ci]" || echo "No changes to commit"
 
-          # try push with GITHUB_TOKEN (persist-credentials: true)
           echo "Attempting push with GITHUB_TOKEN..."
           if git push origin "$BRANCH"; then
             echo "Pushed branch $BRANCH with GITHUB_TOKEN"
             echo "BRANCH_NAME=$BRANCH" >> $GITHUB_OUTPUT
           else
-            echo "Push with GITHUB_TOKEN failed; marking for PAT retry"
-            # create marker file for next step
+            echo "Push with GITHUB_TOKEN failed; will mark for PAT retry"
             echo "$BRANCH" > /tmp/branch_to_push.txt
           fi
 
@@ -137,13 +142,12 @@ jobs:
         env:
           PERSONAL_TOKEN: ${{ secrets.PERSONAL_TOKEN }}
         run: |
-          # If previous push failed, branch name is in /tmp/branch_to_push.txt
           if [ ! -f /tmp/branch_to_push.txt ]; then
             echo "No retry needed; branch already pushed."
             exit 0
           fi
           if [ -z "${PERSONAL_TOKEN}" ]; then
-            echo "PERSONAL_TOKEN not provided; cannot retry push. Exiting."
+            echo "PERSONAL_TOKEN not provided; cannot retry push. Exiting with failure."
             exit 1
           fi
           BRANCH=$(cat /tmp/branch_to_push.txt)
@@ -160,5 +164,5 @@ jobs:
       - name: Output branch info
         if: steps.find_apk.outputs.apk_found == 'true'
         run: |
-          echo "APK branch created. Branch name (if pushed) is printed above."
+          echo "APK branch created (if push succeeded, branch name printed above)."
           git branch -vv || true
