@@ -41,16 +41,13 @@ jobs:
       - name: Install Flutter SDK from git (stable)
         id: install_flutter
         run: |
-          # Install Flutter by cloning stable branch (robust fallback instead of third-party action)
           FLUTTER_DIR="${RUNNER_TEMP}/flutter"
           echo "Installing Flutter into $FLUTTER_DIR"
           rm -rf "$FLUTTER_DIR"
           git clone --depth 1 --branch "$FLUTTER_BRANCH" "$FLUTTER_GIT_URL" "$FLUTTER_DIR"
           echo "$FLUTTER_DIR/bin" >> $GITHUB_PATH
           echo "$FLUTTER_DIR/bin/cache/dart-sdk/bin" >> $GITHUB_PATH
-          # Ensure flutter is available
           flutter --version || true
-          # Precache required artifacts (Android)
           flutter precache --android || true
           flutter doctor -v || true
 
@@ -62,14 +59,37 @@ jobs:
           fi
           flutter --version
 
-      - name: Verify project exists
+      - name: Diagnose project and ensure Android scaffolding
+        working-directory: ${{ env.WORKDIR }}
         run: |
-          if [ ! -d "${{ env.WORKDIR }}" ]; then
-            echo "ERROR: Project folder ${{ env.WORKDIR }} not found"
-            ls -la
-            exit 1
+          echo "Project root listing:"
+          ls -la
+          echo "android folder listing (if exists):"
+          ls -la android || true
+          echo "android/app listing (if exists):"
+          ls -la android/app || true
+          # If android/app missing or build.gradle missing, generate scaffolding
+          if [ ! -d "android/app" ] || [ ! -f "android/app/build.gradle" ]; then
+            echo "Android app module missing or invalid — running flutter create to generate scaffolding"
+            flutter create -t app .
+          else
+            echo "Android app module present"
           fi
-          echo "Using project folder: ${{ env.WORKDIR }}"
+          # Ensure gradlew executable if present
+          if [ -f "android/gradlew" ]; then
+            chmod +x android/gradlew || true
+          fi
+          echo "android/ contents:"
+          ls -la android || true
+
+      - name: Ensure google-services.json if template exists
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          # If you keep a template, optionally copy it to google-services.json here.
+          if [ -f "android/app/google-services.json.template" ] && [ ! -f "android/app/google-services.json" ]; then
+            cp android/app/google-services.json.template android/app/google-services.json || true
+            echo "Copied google-services.json.template to android/app/google-services.json"
+          fi
 
       - name: Flutter pub get
         working-directory: ${{ env.WORKDIR }}
@@ -83,6 +103,7 @@ jobs:
 
       - name: Locate built APK
         id: find_apk
+        working-directory: ${{ env.WORKDIR }}
         run: |
           APK_PATH=$(find build/app/outputs -type f -name "*.apk" -print -quit || true)
           if [ -z "$APK_PATH" ]; then
@@ -101,11 +122,22 @@ jobs:
           cp "${{ steps.find_apk.outputs.apk_path }}" "./${{ env.OUT_NAME }}"
           ls -lh "./${{ env.OUT_NAME }}"
 
-      - name: Commit and push APK to main
+      - name: Commit APK using GITHUB_TOKEN
         if: steps.find_apk.outputs.apk_found == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "${{ env.OUT_NAME }}"
           git commit -m "Add HeartSync release APK [skip ci]" || echo "No changes to commit"
+          git push origin main || echo "Push with GITHUB_TOKEN failed; will try PAT if provided"
+
+      - name: Commit and push using Personal Access Token if provided
+        if: steps.find_apk.outputs.apk_found == 'true' && secrets.PERSONAL_TOKEN != ''
+        run: |
+          # Use PAT stored in secrets.PERSONAL_TOKEN to push when branch protection blocks GITHUB_TOKEN
+          git remote set-url origin https://x-access-token:${{ secrets.PERSONAL_TOKEN }}@github.com/${{ github.repository }}
           git push origin main
+
+      - name: Final listing of repo root
+        if: steps.find_apk.outputs.apk_found == 'true'
+        run: ls -la
