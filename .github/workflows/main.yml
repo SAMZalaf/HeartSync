@@ -1,0 +1,51 @@
+name: Build and commit HeartSync APK
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'extracted/fkDGTlmlf/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build_and_commit_apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Setup Java & unzip
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip wget zip libglu1-mesa openjdk-17-jdk
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 'stable'
+
+      - name: Build APK
+        working-directory: extracted/fkDGTlmlf
+        run: |
+          flutter pub get
+          flutter build apk --release
+
+      - name: Copy APK to repo root
+        run: |
+          cp extracted/fkDGTlmlf/build/app/outputs/flutter-apk/app-release.apk ./heartsync-release.apk
+          ls -lh heartsync-release.apk
+
+      - name: Commit and push APK to main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add heartsync-release.apk
+          git commit -m "🔧 HeartSync APK release [skip ci]" || echo "No changes to commit"
+          git push origin main
