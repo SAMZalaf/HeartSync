@@ -1,0 +1,50 @@
+name: heartsync
+description: A romantic app for couples to stay connected through heartbeats and messages
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # Logging
+  logger: ^2.0.2
+  
+  # Localization & Internationalization
+  flutter_localizations:
+    sdk: flutter
+  flutter_local_notifications: ^17.1.2 
+  intl: ^0.20.2
+  
+  # iOS Icons
+  cupertino_icons: ^1.0.2
+
+  # Firebase Services
+  firebase_core: ^3.14.0
+  firebase_auth: ^5.6.0
+  cloud_firestore: ^5.6.9
+  firebase_storage: ^12.4.7
+  firebase_messaging: ^15.2.7
+  firebase_database: ^11.3.7
+
+  # Utilities
+  shared_preferences: ^2.2.3
+  url_launcher: ^6.2.0
+  mobile_scanner: ^7.0.1
+  permission_handler: ^12.0.0
+  qr_flutter: ^4.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  
+  # Assets
+  assets:
+    - assets/images/
+    - assets/icons/
