@@ -1,0 +1,126 @@
+name: Build Flutter (extracted/fkDGTlmlf)
+
+on:
+  push:
+    branches: [ main ]
+    # اختياري: شغّل تلقائياً عند تعديل أي ملف داخل extracted/fkDGTlmlf
+    paths:
+      - 'extracted/fkDGTlmlf/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      FLUTTER_CHANNEL: "stable"
+      FLUTTER_GIT_URL: "https://github.com/flutter/flutter.git"
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install prerequisites
+        run: sudo apt-get update && sudo apt-get install -y unzip wget zip libglu1-mesa
+
+      - name: Setup Flutter (subosito) - allow failure
+        id: flutter_action
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_CHANNEL }}
+        continue-on-error: true
+
+      - name: Ensure flutter available (fallback to git clone)
+        if: ${{ failure() }}
+        run: |
+          if ! command -v flutter >/dev/null 2>&1; then
+            echo "Installing Flutter from git (stable) as fallback..."
+            FLUTTER_DIR="${RUNNER_TEMP}/flutter"
+            rm -rf "$FLUTTER_DIR"
+            git clone --depth 1 --branch ${{ env.FLUTTER_CHANNEL }} ${{ env.FLUTTER_GIT_URL }} "$FLUTTER_DIR"
+            echo "$FLUTTER_DIR/bin" >> $GITHUB_PATH
+            echo "$FLUTTER_DIR/bin/cache/dart-sdk/bin" >> $GITHUB_PATH || true
+          fi
+
+      - name: Confirm Flutter & Java
+        run: |
+          java -version || true
+          flutter --version || true
+
+      - name: Ensure Android SDK (best-effort)
+        run: |
+          sudo mkdir -p $ANDROID_SDK_ROOT
+          sudo chown -R $USER:$USER $ANDROID_SDK_ROOT || true
+          # Try to use sdkmanager if present; on GitHub runners it may already exist
+          if command -v sdkmanager >/dev/null 2>&1; then
+            yes | sdkmanager "platform-tools" "platforms;android-33" "build-tools;33.0.2" || true
+            yes | sdkmanager --licenses || true
+          else
+            echo "sdkmanager not found; relying on runner default Android SDK"
+          fi
+
+      - name: Set project WORKDIR
+        id: set_workdir
+        run: |
+          # Use extracted/fkDGTlmlf as project root
+          WORKDIR="extracted/fkDGTlmlf"
+          if [ ! -d "$WORKDIR" ]; then
+            echo "ERROR: $WORKDIR not found. Listing repo root:"
+            ls -la .
+            exit 1
+          fi
+          echo "WORKDIR=$WORKDIR" >> $GITHUB_ENV
+          echo "Using WORKDIR: $WORKDIR"
+
+      - name: Diagnostic - list project files
+        run: |
+          echo "=== Listing ${{ env.WORKDIR }} ==="
+          ls -la "${{ env.WORKDIR }}" || true
+          echo "=== Listing android/ (if exists) ==="
+          ls -la "${{ env.WORKDIR }}/android" || true
+
+      - name: Ensure gradlew executable (if present)
+        run: |
+          if [ -f "${{ env.WORKDIR }}/android/gradlew" ]; then
+            chmod +x "${{ env.WORKDIR }}/android/gradlew" || true
+          fi
+
+      - name: Flutter pub get
+        working-directory: ${{ env.WORKDIR }}
+        run: flutter pub get --verbose
+
+      - name: Build APK (release)
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          set -o pipefail
+          flutter build apk --release -v
+
+      - name: Build AAB (release)
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          set -o pipefail
+          flutter build appbundle --release -v
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-apk
+          path: ${{ env.WORKDIR }}/build/app/outputs/flutter-apk/*.apk
+
+      - name: Upload AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-aab
+          path: ${{ env.WORKDIR }}/build/app/outputs/bundle/release/*.aab
